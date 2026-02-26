@@ -34,10 +34,10 @@ bash claude-qa/install.sh
 
 ### After install
 
-1. **Add your API key** as a GitHub Actions secret:
-  ```bash
+1. **For CI only:** Add an Anthropic API key as a GitHub Actions secret (needed for PR-triggered runs; see [Billing: Local vs CI](#billing-local-vs-ci)):
+   ```bash
    gh secret set ANTHROPIC_API_KEY
-  ```
+   ```
 2. **Customize** `qa.config.yml` in your project root (optional — sensible defaults included).
 3. **Open a PR** — Claude-QA will automatically analyze it and post a comment.
 
@@ -73,6 +73,15 @@ With Claude Code installed, you can run the QA pipeline locally:
 # Using the shell script directly
 PR_NUMBER=42 bash claude-qa/scripts/run-qa.sh
 ```
+
+### Billing: Local vs CI
+
+| Where | How it authenticates | What gets billed |
+|-------|----------------------|------------------|
+| **Local** (`./scripts/run-qa.sh`) | `claude auth login` — use your **Claude Pro** session | Pro subscription; no extra API cost. Run `claude auth login` once and **do not** set `ANTHROPIC_API_KEY` in that shell. |
+| **GitHub Actions** | `ANTHROPIC_API_KEY` in repo secrets only | **API credits** (separate from Pro). Add a key from [console.anthropic.com](https://console.anthropic.com) and ensure the account has credits. |
+
+CI has no interactive login, so it always uses the API and API billing. Local runs can use Pro when you're logged in and not passing an API key.
 
 ## Configuration
 
