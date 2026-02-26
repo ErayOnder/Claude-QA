@@ -1,6 +1,9 @@
+# ============================================================
 # Claude-QA Configuration
-# This is the ONLY file you need to customize for your project.
+# This is the ONLY file you need to edit after cloning.
+# ============================================================
 
+# ── App Settings ────────────────────────────────────────────
 app:
   # Application URL for browser testing (used by executor agent in future tiles)
   url: http://localhost:3000
@@ -8,15 +11,39 @@ app:
   # "auto" will detect based on package.json, requirements.txt, go.mod, etc.
   type: auto
 
+  # Authentication — how to log in before testing (if needed)
+  auth:
+    enabled: false
+    # Options: credentials | token | none
+    strategy: "credentials"
+    username_env: "QA_USERNAME"   # env var name (never put actual credentials here)
+    password_env: "QA_PASSWORD"
+
+# ── Test Scope ───────────────────────────────────────────────
 testing:
-  # Run the project's existing test suite as part of the pipeline
+  # Which browsers to test in (Playwright)
+  # Options: chromium | firefox | webkit
+  browsers:
+    - chromium
+  # Test in mobile viewport as well?
+  mobile: false
+  # Maximum time (seconds) to wait for page actions
+  timeout: 30
+  # Retry failed tests before marking as failed
+  retries: 1
+  # Take screenshot on every test step
+  screenshot_always: true
+  # Run the project's existing test suite (if present) as part of the pipeline
   run_existing_tests: true
   # Command to run existing tests (auto-detected if left empty)
   test_command: ""
+  # Playwright-specific settings
   playwright:
+    # Whether to use Playwright for browser tests
     enabled: true
     base_url: http://localhost:3000
 
+# ── Analysis Settings ──────────────────────────────────────────
 analysis:
   # Minimum risk level to flag: low | medium | high | critical
   risk_threshold: medium
@@ -29,10 +56,55 @@ analysis:
     - "node_modules/**"
     - "__pycache__/**"
 
+# ── Reporting Settings ──────────────────────────────────────────
 reporting:
   # Post analysis results as a PR comment
   post_comment: true
-  # Attach screenshots from browser tests (future)
+  # Attach screenshots from browser tests
   include_screenshots: true
   # Block the PR check if risk is CRITICAL
   block_on_high_risk: false
+  # Save report as artifact in CI?
+  save_artifact: true
+  # Artifact path (relative to host project root)
+  artifact_path: "qa-reports"
+
+# ── CI Trigger ───────────────────────────────────────────────
+ci:
+  # Trigger QA on these PR events
+  # Options: opened | synchronize | labeled | reopened
+  trigger_on:
+    - opened
+    - synchronize
+
+  # Only trigger when this label is added to the PR?
+  # Leave empty to trigger on all PRs
+  trigger_label: ""
+
+  # Branches to run QA on (glob patterns)
+  branches:
+    - "main"
+    - "develop"
+    - "feature/*"
+    - "fix/*"
+
+  # Skip QA for PRs with these labels
+  skip_labels:
+    - "skip-qa"
+    - "wip"
+    - "draft"
+
+# ── Advanced ─────────────────────────────────────────────────
+advanced:
+  # Max lines of diff to analyze (larger diffs get chunked)
+  max_diff_lines: 500
+
+  # Focus analysis only on changed files and their direct dependencies?
+  focused_analysis: true
+
+  # Claude model to use for agents
+  # Options: claude-opus-4-5 | claude-sonnet-4-5 | claude-haiku-4-5
+  model: "claude-sonnet-4-6"
+
+  # Verbose logging in CI?
+  verbose: false

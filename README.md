@@ -5,9 +5,7 @@ AI-powered QA pipeline that acts like a senior QA engineer on every pull request
 ```
 Developer pushes code / opens PR
           |
-  ANALYZE — Claude reads the diff, maps impact, classifies risk
-          |
-     PLAN — Generates test plan: happy paths, edge cases, regression
+  ANALYZE — Claude reads the diff, maps impact, classifies risk, generates test plan
           |
   EXECUTE — Runs tests via Playwright, API calls, or existing suites
           |
@@ -37,25 +35,26 @@ bash claude-qa/install.sh
 ### After install
 
 1. **Add your API key** as a GitHub Actions secret:
-   ```bash
+  ```bash
    gh secret set ANTHROPIC_API_KEY
-   ```
-
+  ```
 2. **Customize** `qa.config.yml` in your project root (optional — sensible defaults included).
-
 3. **Open a PR** — Claude-QA will automatically analyze it and post a comment.
 
 ## What Gets Installed
 
 Running `install.sh` does the following in your project:
 
-| What | Where | How |
-|------|-------|-----|
-| Agent definitions | `.claude/agents/` | Symlinked |
-| Slash commands | `.claude/commands/` | Symlinked |
-| QA skills | `.claude/skills/` | Symlinked |
-| CI workflow | `.github/workflows/claude-qa.yml` | Copied |
-| Config template | `qa.config.yml` | Copied |
+
+| What              | Where                             | How                              |
+| ----------------- | --------------------------------- | -------------------------------- |
+| Agent definitions | `.claude/agents/`                 | Symlinked                        |
+| Slash commands    | `.claude/commands/`               | Symlinked                        |
+| QA skills         | `.claude/skills/`                 | Symlinked                        |
+| CI workflow       | `.github/workflows/claude-qa.yml` | Copied                           |
+| Config template   | `qa.config.yml`                   | Created if missing               |
+| Output directory  | `.gitignore`                      | Entry `.claude-qa-output/` added |
+
 
 Symlinks point back to the `claude-qa/` directory, so pulling updates is as simple as:
 
@@ -77,7 +76,7 @@ PR_NUMBER=42 bash claude-qa/scripts/run-qa.sh
 
 ## Configuration
 
-Edit `qa.config.yml` in your project root:
+Edit `qa.config.yml` in your project root. Minimal setup:
 
 ```yaml
 app:
@@ -99,18 +98,14 @@ reporting:
   block_on_high_risk: false     # Block merge on CRITICAL risk
 ```
 
+The full `qa.config.yml` in this repo includes more options: auth, browsers, Playwright settings, CI triggers, and advanced tuning. Copy or edit as needed.
+
 ## Requirements
 
 - [Claude Code CLI](https://docs.anthropic.com/en/docs/claude-code) — the AI engine
 - [GitHub CLI](https://cli.github.com/) (`gh`) — for PR interaction
 - `jq` — for JSON processing in CI
 - An Anthropic API key
-
-## Current Status
-
-**Tile 1 (current):** Analyzer agent is functional — reads PR diffs, classifies risk, posts analysis comments.
-
-Tiles 2-6 (planner, executor, reporter, polish) are on the roadmap. See agent placeholder files for details.
 
 ## How It Works
 
