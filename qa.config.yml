@@ -1,0 +1,38 @@
+# Claude-QA Configuration
+# This is the ONLY file you need to customize for your project.
+
+app:
+  # Application URL for browser testing (used by executor agent in future tiles)
+  url: http://localhost:3000
+  # Project type: auto | web | api | fullstack
+  # "auto" will detect based on package.json, requirements.txt, go.mod, etc.
+  type: auto
+
+testing:
+  # Run the project's existing test suite as part of the pipeline
+  run_existing_tests: true
+  # Command to run existing tests (auto-detected if left empty)
+  test_command: ""
+  playwright:
+    enabled: true
+    base_url: http://localhost:3000
+
+analysis:
+  # Minimum risk level to flag: low | medium | high | critical
+  risk_threshold: medium
+  # Glob patterns for files to skip during analysis
+  ignore_paths:
+    - "*.md"
+    - "docs/**"
+    - ".github/**"
+    - "*.lock"
+    - "node_modules/**"
+    - "__pycache__/**"
+
+reporting:
+  # Post analysis results as a PR comment
+  post_comment: true
+  # Attach screenshots from browser tests (future)
+  include_screenshots: true
+  # Block the PR check if risk is CRITICAL
+  block_on_high_risk: false
