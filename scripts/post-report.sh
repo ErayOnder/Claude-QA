@@ -1,148 +1,67 @@
 #!/usr/bin/env bash
+# ============================================================
+# post-report.sh — Post QA report to GitHub PR
+#
+# Posts .claude-qa-output/report.md as a PR comment.
+# Use --replace to delete previous Claude-QA comments first.
+#
+# Usage:
+#   ./scripts/post-report.sh 42
+#   ./scripts/post-report.sh 42 --replace
+#   ./scripts/post-report.sh 42 --report path/to/report.md
+# ============================================================
+
 set -euo pipefail
 
-# ---------------------------------------------------------------------------
-# Posts a Claude-QA analysis as a PR comment via the GitHub CLI.
-#
-# Usage: post-report.sh <PR_NUMBER> <ANALYSIS_JSON_PATH>
-# ---------------------------------------------------------------------------
+RED='\033[0;31m'; GREEN='\033[0;32m'; YELLOW='\033[1;33m'; NC='\033[0m'
+success() { echo -e "${GREEN}[post-report]${NC} $1"; }
+warn()    { echo -e "${YELLOW}[post-report]${NC} $1"; }
+error()   { echo -e "${RED}[post-report]${NC} $1"; exit 1; }
 
-PR_NUMBER="${1:?Usage: post-report.sh <PR_NUMBER> <ANALYSIS_JSON_PATH>}"
-ANALYSIS_FILE="${2:?Usage: post-report.sh <PR_NUMBER> <ANALYSIS_JSON_PATH>}"
+# ── Parse args ───────────────────────────────────────────────
+PR_NUMBER="${1:-}"
+REPLACE=false
+REPORT_FILE=".claude-qa-output/report.md"
 
-if [[ ! -f "$ANALYSIS_FILE" ]]; then
-  echo "ERROR: Analysis file not found: $ANALYSIS_FILE"
-  exit 1
+shift 2>/dev/null || true
+while [[ $# -gt 0 ]]; do
+  case $1 in
+    --replace) REPLACE=true; shift ;;
+    --report)  REPORT_FILE="$2"; shift 2 ;;
+    *) error "Unknown argument: $1" ;;
+  esac
+done
+
+[ -z "$PR_NUMBER" ] && error "Usage: post-report.sh <PR_NUMBER> [--replace] [--report FILE]"
+[ ! -f "$REPORT_FILE" ] && error "Report file not found: $REPORT_FILE"
+
+# ── Check gh auth ────────────────────────────────────────────
+if ! gh auth status &>/dev/null; then
+  error "gh CLI not authenticated. Run: gh auth login"
 fi
 
-if ! command -v jq &>/dev/null; then
-  echo "WARNING: jq not found — posting raw JSON as comment."
-  gh pr comment "$PR_NUMBER" --body "$(cat <<EOF
-## Claude-QA Analysis
+# ── Delete previous Claude-QA comments (if --replace) ────────
+if [ "$REPLACE" = "true" ]; then
+  echo "Checking for previous Claude-QA comments..."
+  COMMENT_IDS=$(gh pr view "$PR_NUMBER" --json comments \
+    --jq '.comments[] | select(.body | startswith("## ") and contains("QA")) | .databaseId' \
+    2>/dev/null || echo "")
 
-\`\`\`json
-$(cat "$ANALYSIS_FILE")
-\`\`\`
-EOF
-)"
-  exit 0
+  if [ -n "$COMMENT_IDS" ]; then
+    for ID in $COMMENT_IDS; do
+      gh api --method DELETE "/repos/{owner}/{repo}/issues/comments/$ID" 2>/dev/null || true
+      warn "Deleted previous QA comment: $ID"
+    done
+  fi
 fi
 
-# ---------------------------------------------------------------------------
-# Extract fields from analysis JSON
-# ---------------------------------------------------------------------------
-RISK=$(jq -r '.risk.level // "UNKNOWN"' "$ANALYSIS_FILE")
-REASONING=$(jq -r '.risk.reasoning // "N/A"' "$ANALYSIS_FILE")
-SUMMARY=$(jq -r '.summary // "No summary available."' "$ANALYSIS_FILE")
-PR_TITLE=$(jq -r '.pr.title // "Unknown"' "$ANALYSIS_FILE")
+# ── Post the report ──────────────────────────────────────────
+echo "Posting QA report to PR #$PR_NUMBER..."
+gh pr comment "$PR_NUMBER" --body-file "$REPORT_FILE"
+success "QA report posted to PR #$PR_NUMBER"
 
-RISK_EMOJI="white_check_mark"
-case "$RISK" in
-  LOW)      RISK_EMOJI="white_check_mark" ;;
-  MEDIUM)   RISK_EMOJI="yellow_circle"    ;;
-  HIGH)     RISK_EMOJI="orange_circle"    ;;
-  CRITICAL) RISK_EMOJI="red_circle"       ;;
-esac
-
-# ---------------------------------------------------------------------------
-# Build file change table
-# ---------------------------------------------------------------------------
-FILES_TABLE=$(jq -r '
-  .files_changed // [] | map(
-    "| `\(.path)` | \(.category) | \(.change_type) | \(.description) |"
-  ) | join("\n")
-' "$ANALYSIS_FILE")
-
-# ---------------------------------------------------------------------------
-# Build testing recommendations
-# ---------------------------------------------------------------------------
-TESTING_RECS=$(jq -r '
-  def fmt(label; arr):
-    if (arr | length) > 0
-    then "**\(label):**\n" + (arr | map("- \(.)") | join("\n")) + "\n"
-    else ""
-    end;
-  .recommended_testing as $t |
-  [
-    fmt("Unit Tests"; $t.unit // []),
-    fmt("Integration Tests"; $t.integration // []),
-    fmt("E2E / Browser Tests"; $t.e2e // []),
-    fmt("Regression Tests"; $t.regression // []),
-    fmt("Manual Review"; $t.manual_review // [])
-  ] | map(select(. != "")) | join("\n")
-' "$ANALYSIS_FILE")
-
-# ---------------------------------------------------------------------------
-# Build impact section
-# ---------------------------------------------------------------------------
-IMPACT_SECTION=$(jq -r '
-  def bullet(arr): arr // [] | map("- \(.)") | join("\n");
-  .impact as $i |
-  "**Direct:**\n" + bullet($i.direct) + "\n\n" +
-  "**Indirect:**\n" + bullet($i.indirect) + "\n\n" +
-  "**Breaking Risks:**\n" + bullet($i.breaking_risks)
-' "$ANALYSIS_FILE")
-
-# ---------------------------------------------------------------------------
-# Compose the comment
-# ---------------------------------------------------------------------------
-COMMENT_BODY=$(cat <<EOF
-## :robot: Claude-QA Analysis
-
-**PR:** $PR_TITLE
-**Risk:** :$RISK_EMOJI: **$RISK**
-
-### Summary
-
-$SUMMARY
-
-### Risk Assessment
-
-$REASONING
-
-**Increasing factors:**
-$(jq -r '(.risk.increasing_factors // []) | map("- \(.)") | join("\n")' "$ANALYSIS_FILE")
-
-**Decreasing factors:**
-$(jq -r '(.risk.decreasing_factors // []) | map("- \(.)") | join("\n")' "$ANALYSIS_FILE")
-
-### Files Changed
-
-| File | Category | Change | Description |
-|------|----------|--------|-------------|
-$FILES_TABLE
-
-### Impact
-
-$IMPACT_SECTION
-
-### Recommended Testing
-
-$TESTING_RECS
-
----
-*Generated by [Claude-QA](https://github.com/erayonder/Claude-QA) — AI-powered QA pipeline*
-EOF
-)
-
-# ---------------------------------------------------------------------------
-# Post (or update existing) comment
-# ---------------------------------------------------------------------------
-EXISTING_COMMENT_ID=$(gh api \
-  "repos/{owner}/{repo}/issues/$PR_NUMBER/comments" \
-  --jq '.[] | select(.body | startswith("## :robot: Claude-QA")) | .id' \
-  2>/dev/null | head -1 || true)
-
-if [[ -n "$EXISTING_COMMENT_ID" ]]; then
-  echo "Updating existing Claude-QA comment ($EXISTING_COMMENT_ID)..."
-  gh api \
-    --method PATCH \
-    "repos/{owner}/{repo}/issues/comments/$EXISTING_COMMENT_ID" \
-    -f body="$COMMENT_BODY" \
-    > /dev/null
-else
-  echo "Posting new Claude-QA comment..."
-  gh pr comment "$PR_NUMBER" --body "$COMMENT_BODY"
+# ── Print comment URL ────────────────────────────────────────
+PR_URL=$(gh pr view "$PR_NUMBER" --json url -q '.url' 2>/dev/null || echo "")
+if [ -n "$PR_URL" ]; then
+  success "View at: ${PR_URL}"
 fi
-
-echo "Report posted to PR #$PR_NUMBER."

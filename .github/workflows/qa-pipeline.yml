@@ -1,8 +1,8 @@
-name: Claude-QA Pipeline
+name: Claude QA Pipeline
 
 on:
   pull_request:
-    types: [opened, synchronize, reopened]
+    types: [opened, synchronize, reopened, ready_for_review]
 
 permissions:
   contents: read
@@ -10,35 +10,136 @@ permissions:
   issues: write
 
 jobs:
-  qa-analyze:
-    name: "QA Analysis"
+  qa-pipeline:
+    name: QA Pipeline
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    if: github.event.pull_request.draft == false
+    timeout-minutes: 30
+
+    env:
+      PR_NUMBER: ${{ github.event.pull_request.number }}
 
     steps:
-      - name: Checkout repository
+      - name: Checkout code
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
 
-      - name: Install Claude Code
-        run: npm install -g @anthropic-ai/claude-code
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
 
-      - name: Install jq
-        run: sudo apt-get install -y jq
+      - name: Install Playwright
+        run: |
+          npm install -g @playwright/test
+          npx playwright install chromium --with-deps
 
-      - name: Run QA Pipeline
+      - name: Create output directories
+        run: mkdir -p .claude-qa-output/screenshots
+
+      - name: Configure Claude Code permissions
+        run: |
+          mkdir -p $HOME/.claude
+          cat > $HOME/.claude/settings.json << 'EOF'
+          {
+            "permissions": {
+              "allow": [
+                "Bash(gh *)",
+                "Bash(cat *)",
+                "Bash(node *)",
+                "Bash(npx *)",
+                "Bash(npm *)",
+                "Bash(find *)",
+                "Bash(grep *)",
+                "Bash(mkdir *)",
+                "Bash(cp *)",
+                "Bash(ls *)",
+                "Bash(echo *)",
+                "Bash(test *)",
+                "Bash(sleep *)",
+                "Bash(wc *)",
+                "Read",
+                "Write",
+                "Glob",
+                "Grep"
+              ],
+              "deny": [
+                "Bash(rm -rf *)",
+                "Bash(sudo *)",
+                "Write(**/.env*)",
+                "Write(**/.ssh/**)"
+              ]
+            }
+          }
+          EOF
+
+      # ── Step 1: Analyze PR ────────────────────────────────
+      - name: "Step 1/3: Analyze PR"
+        id: analyze
+        uses: anthropics/claude-code-action@v1
+        with:
+          anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
+          prompt: |
+            Run the analyzer agent on PR #${{ env.PR_NUMBER }}.
+
+            Instructions:
+            1. Read qa.config.yml for project config
+            2. Fetch the PR diff with: gh pr diff ${{ env.PR_NUMBER }}
+            3. Fetch PR metadata with: gh pr view ${{ env.PR_NUMBER }} --json files,commits,title,body
+            4. Analyze the diff following .claude/agents/analyzer.md instructions
+            5. Save the analysis JSON to .claude-qa-output/analysis.json
+          claude_args: |
+            --max-turns 25
+            --allowedTools "Bash(gh *),Bash(cat *),Bash(find *),Bash(grep *),Bash(mkdir *),Bash(echo *),Read,Write,Glob,Grep"
+
+      # ── Step 2: Execute Tests ─────────────────────────────
+      - name: "Step 2/3: Execute Tests"
+        id: execute
+        uses: anthropics/claude-code-action@v1
+        with:
+          anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
+          prompt: |
+            Run the executor agent using the analysis at .claude-qa-output/analysis.json.
+
+            Instructions:
+            1. Read .claude-qa-output/analysis.json
+            2. Read qa.config.yml for app URL and test settings
+            3. Execute tests following .claude/agents/executor.md instructions
+            4. Save screenshots to .claude-qa-output/screenshots/
+            5. Save results JSON to .claude-qa-output/results.json
+          claude_args: |
+            --max-turns 40
+            --allowedTools "Bash(node *),Bash(npx *),Bash(npm *),Bash(cat *),Bash(find *),Bash(mkdir *),Bash(echo *),Bash(test *),Bash(sleep *),Read,Write,Glob"
         env:
-          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          PR_NUMBER: ${{ github.event.pull_request.number }}
-          POST_REPORT: "true"
-        run: bash scripts/run-qa.sh
+          QA_USERNAME: ${{ secrets.QA_USERNAME }}
+          QA_PASSWORD: ${{ secrets.QA_PASSWORD }}
 
-      - name: Upload analysis artifact
+      # ── Step 3: Generate and Post Report ───────────────────
+      - name: "Step 3/3: Report"
+        id: report
+        uses: anthropics/claude-code-action@v1
+        with:
+          anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
+          prompt: |
+            Run the reporter agent to generate and post the QA report.
+
+            Instructions:
+            1. Read .claude-qa-output/analysis.json and .claude-qa-output/results.json
+            2. Generate the report following .claude/agents/reporter.md instructions
+            3. Save the report to .claude-qa-output/report.md
+            4. Post the report as a PR comment:
+               gh pr comment ${{ env.PR_NUMBER }} --body-file .claude-qa-output/report.md
+          claude_args: |
+            --max-turns 10
+            --allowedTools "Bash(gh pr comment *),Bash(cat *),Bash(echo *),Read,Write"
+
+      # ── Upload Artifacts ──────────────────────────────────
+      - name: Upload QA artifacts
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: claude-qa-analysis
+          name: qa-artifacts-pr${{ env.PR_NUMBER }}-${{ github.run_number }}
           path: .claude-qa-output/
-          retention-days: 30
+          retention-days: 14
+          if-no-files-found: warn
