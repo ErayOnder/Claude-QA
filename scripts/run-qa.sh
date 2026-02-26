@@ -104,10 +104,11 @@ step "Step 1/3 — Analyzing PR #$PR_NUMBER"
 
 claude --print \
   --max-turns 25 \
-  --allowedTools "Bash(gh *),Bash(cat *),Bash(find *),Bash(grep *),Bash(mkdir *),Bash(echo *),Read,Write,Glob,Grep" \
-  "Run the analyzer agent on PR #$PR_NUMBER.
+  --allowedTools "Bash(gh *),Bash(cat *),Bash(find *),Bash(grep *),Bash(mkdir *),Bash(echo *),Read,Write,Glob,Grep" <<PROMPT
+Run the analyzer agent on PR #$PR_NUMBER.
 Config: qa.config.yml
-Save the analysis JSON to $OUTPUT_DIR/analysis.json"
+Save the analysis JSON to $OUTPUT_DIR/analysis.json
+PROMPT
 
 if [ ! -f "$OUTPUT_DIR/analysis.json" ]; then
   error "Analyzer did not produce $OUTPUT_DIR/analysis.json"
@@ -145,11 +146,12 @@ step "Step 2/3 — Executing tests"
 
 claude --print \
   --max-turns 40 \
-  --allowedTools "Bash(node *),Bash(npx *),Bash(npm *),Bash(cat *),Bash(find *),Bash(mkdir *),Bash(echo *),Bash(test *),Bash(sleep *),Read,Write,Glob" \
-  "Run the executor agent using the analysis at $OUTPUT_DIR/analysis.json.
+  --allowedTools "Bash(node *),Bash(npx *),Bash(npm *),Bash(cat *),Bash(find *),Bash(mkdir *),Bash(echo *),Bash(test *),Bash(sleep *),Read,Write,Glob" <<PROMPT
+Run the executor agent using the analysis at $OUTPUT_DIR/analysis.json.
 Config: qa.config.yml
 Screenshots dir: $OUTPUT_DIR/screenshots/
-Save results to: $OUTPUT_DIR/results.json"
+Save results to: $OUTPUT_DIR/results.json
+PROMPT
 
 if [ ! -f "$OUTPUT_DIR/results.json" ]; then
   error "Executor did not produce $OUTPUT_DIR/results.json"
@@ -162,12 +164,13 @@ step "Step 3/3 — Generating report"
 
 claude --print \
   --max-turns 10 \
-  --allowedTools "Bash(cat *),Bash(echo *),Read,Write" \
-  "Run the reporter agent to generate the final QA report.
+  --allowedTools "Bash(cat *),Bash(echo *),Read,Write" <<PROMPT
+Run the reporter agent to generate the final QA report.
 Analysis: $OUTPUT_DIR/analysis.json
 Results: $OUTPUT_DIR/results.json
 PR Number: $PR_NUMBER
-Save the markdown report to: $OUTPUT_DIR/report.md"
+Save the markdown report to: $OUTPUT_DIR/report.md
+PROMPT
 
 if [ ! -f "$OUTPUT_DIR/report.md" ]; then
   error "Reporter did not produce $OUTPUT_DIR/report.md"
